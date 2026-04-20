@@ -1,0 +1,99 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: knowledge-base
+  datasource:
+    url: jdbc:postgresql://localhost:5432/knowledge_base
+    username: kb_user
+    password: kb_password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  sql:
+    init:
+      mode: never   # schema.sql 由 docker-compose 初始化
+
+  # Spring AI 配置
+  ai:
+    # OpenAI 配置（替换为实际 API Key）
+    openai:
+      api-key: ${OPENAI_API_KEY:sk-your-api-key-here}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: gpt-4o-mini
+          temperature: 0.3
+          max-tokens: 2048
+      embedding:
+        options:
+          model: text-embedding-3-small
+
+    # PGVector 向量存储配置
+    vectorstore:
+      pgvector:
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 1536          # text-embedding-3-small 维度
+        initialize-schema: true   # 自动创建 vector_store 表
+        schema-name: public
+        table-name: vector_store
+        remove-existing-vector-store-table: false
+
+# 文档处理配置
+kb:
+  document:
+    upload-dir: ${KB_UPLOAD_DIR:./uploads}
+    max-file-size: 50MB
+    allowed-types: pdf,docx,doc,txt,md
+    chunk-size: 800          # token per chunk
+    chunk-overlap: 200       # overlap token
+  rag:
+    top-k: 5                 # 检索 Top-K 片段
+    similarity-threshold: 0.65  # 最低相似度阈值
+    use-hybrid-search: true   # 启用 Hybrid Search（向量 + BM25）
+  
+  # Hybrid Search 混合检索配置
+  hybrid:
+    enabled: true            # 是否启用混合检索
+    vector-weight: 0.5        # 向量检索权重（0.0-1.0）
+    keyword-weight: 0.5       # BM25 关键词检索权重（0.0-1.0）
+    rrf-k: 60                # RRF 算法参数（通常 60）
+    vector-top-k: 20         # 向量检索候选数量
+    keyword-top-k: 20         # BM25 检索候选数量
+  
+  # 向量缓存配置
+  cache:
+    max-size: 500            # 最大缓存问题数量（向量占用内存较大）
+    similarity-threshold: 0.95  # 相似度阈值（> 0.95 视为相同问题）
+    ttl-minutes: 30          # 缓存过期时间（分钟）
+  
+  # 异步线程池配置
+  async:
+    core-pool-size: 4        # 核心线程数（建议 CPU 核心数）
+    max-pool-size: 16        # 最大线程数（I/O 密集型任务）
+    queue-capacity: 100      # 队列容量
+    keep-alive-seconds: 60   # 线程空闲时间
+  
+  chat:
+    system-prompt: |
+      你是一个专业的企业知识库助手。请严格基于以下检索到的上下文信息来回答用户问题。
+      如果上下文中没有相关信息，请明确告知用户"根据现有知识库，暂无相关信息"，不要凭空捏造答案。
+      回答时请保持准确、简洁、专业，并在合适时引用来源文档名称。
+
+      上下文信息：
+      {context}
+
+logging:
+  level:
+    com.kb: DEBUG
+    org.springframework.ai: INFO
