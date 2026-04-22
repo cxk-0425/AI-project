@@ -39,15 +39,12 @@ spring:
           model: text-embedding-3-small
 
     # PGVector 向量存储配置
+    # 注意：VectorStoreConfig 中手动声明了双 VectorStore Bean（docVectorStore + sopVectorStore）
+    # auto-configure 被禁用，仅保留 dimensions 参数供 VectorStoreConfig 读取
     vectorstore:
       pgvector:
-        index-type: HNSW
-        distance-type: COSINE_DISTANCE
-        dimensions: 1536          # text-embedding-3-small 维度
-        initialize-schema: true   # 自动创建 vector_store 表
-        schema-name: public
-        table-name: vector_store
-        remove-existing-vector-store-table: false
+        enabled: false            # 禁用 auto-configure（使用 VectorStoreConfig 手动配置）
+        dimensions: 1536          # text-embedding-3-small 维度（供 VectorStoreConfig 注入）
 
 # 文档处理配置
 kb:
@@ -92,6 +89,41 @@ kb:
 
       上下文信息：
       {context}
+
+# ================================================================
+# BERT 意图识别配置
+# ================================================================
+bert:
+  # 是否启用 BERT 主路径（false=纯 LLM 降级，本地开发推荐 false）
+  enabled: ${BERT_ENABLED:false}
+  service:
+    url: ${BERT_SERVICE_URL:http://localhost:8000}
+  # BERT 置信度阈值（低于此值触发 LLM 降级）
+  confidence-threshold: 0.82
+
+# 意图识别策略配置
+intent:
+  # LLM 分类置信度最低阈值（低于此值使用默认 QUERY 策略）
+  fallback-threshold: 0.65
+  llm:
+    max-tokens: 150
+
+# ================================================================
+# 营销 API 配置（MCP 工具调用的目标服务）
+# ================================================================
+marketing:
+  api:
+    base-url: ${MARKETING_API_BASE_URL:http://localhost:9090}
+    token: ${MARKETING_API_TOKEN:}
+
+# ================================================================
+# Agent 链配置
+# ================================================================
+agent:
+  planner:
+    max-steps: 10           # Planner 最多拆分步骤数
+  supervisor:
+    max-replan-count: 2     # Supervisor 触发重规划的最大次数
 
 logging:
   level:

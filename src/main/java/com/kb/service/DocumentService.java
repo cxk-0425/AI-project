@@ -118,6 +118,81 @@ public class DocumentService {
     }
 
     /**
+     * 上传并处理 SOP 文档（入库到 sopVectorStore）
+     * <p>
+     * 复用相同的文件解析和分块逻辑，但将向量写入 sopVectorStore（而非默认的 docVectorStore）。
+     * 元数据记录仍存到 kb_document 表，status 字段用于状态追踪。
+     *
+     * @param file          上传的 SOP 文档文件
+     * @param sopRagService SopRagService，负责向 sopVectorStore 添加文档
+     * @return 文档元数据记录
+     */
+    @Transactional
+    public KbDocument uploadAndProcessToSop(MultipartFile file, SopRagService sopRagService) throws Exception {
+        String filename = file.getOriginalFilename();
+        log.info("[DocumentService] 开始处理 SOP 文档: {}", filename);
+
+        // 1. 校验文件类型
+        if (!parserFactory.isSupported(filename)) {
+            throw new IllegalArgumentException("不支持的文件类型: " + filename);
+        }
+
+        // 2. 计算文件 Hash，去重检查
+        byte[] fileBytes = file.getBytes();
+        String fileHash = sha256Hex(fileBytes);
+        if (documentMetaRepository.findByFileHash(fileHash).isPresent()) {
+            log.warn("[DocumentService] SOP 文件已存在，跳过重复入库: {}", filename);
+            return documentMetaRepository.findByFileHash(fileHash).get();
+        }
+
+        // 3. 保存元数据记录（标记 file_type 为 SOP 类型）
+        String fileType = getFileExtension(filename);
+        KbDocument doc = KbDocument.builder()
+                .filename(filename)
+                .fileHash(fileHash)
+                .fileSize(file.getSize())
+                .fileType("sop-" + fileType)   // 标记为 SOP 文档
+                .status(KbDocument.DocumentStatus.PROCESSING)
+                .build();
+        doc = documentMetaRepository.save(doc);
+
+        try {
+            // 4. 解析文档为纯文本
+            DocumentParser parser = parserFactory.getParser(filename);
+            String rawText;
+            try (InputStream is = file.getInputStream()) {
+                rawText = parser.parse(is, filename);
+            }
+
+            if (rawText == null || rawText.isBlank()) {
+                throw new IllegalStateException("SOP 文档内容为空: " + filename);
+            }
+
+            // 5. 文本切块（使用相同的 TokenTextSplitter 逻辑）
+            List<Document> chunks = splitIntoChunks(rawText, filename, doc.getId());
+            log.info("[DocumentService] SOP 文档 {} 切块完成: {} 个 chunk", filename, chunks.size());
+
+            // 6. 向量化并存入 sopVectorStore（通过 SopRagService）
+            sopRagService.addDocuments(chunks);
+            log.info("[DocumentService] SOP 向量入库完成: {}", filename);
+
+            // 7. 更新元数据状态为 DONE
+            doc.setChunkCount(chunks.size());
+            doc.setStatus(KbDocument.DocumentStatus.DONE);
+            doc = documentMetaRepository.save(doc);
+
+        } catch (Exception e) {
+            log.error("[DocumentService] SOP 文档处理失败: {}", filename, e);
+            doc.setStatus(KbDocument.DocumentStatus.ERROR);
+            doc.setErrorMsg(e.getMessage());
+            documentMetaRepository.save(doc);
+            throw e;
+        }
+
+        return doc;
+    }
+
+    /**
      * 查询所有已上传文档
      */
     public List<KbDocument> listDocuments() {

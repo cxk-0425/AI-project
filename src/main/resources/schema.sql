@@ -59,3 +59,44 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER trg_kb_document_updated_at
     BEFORE UPDATE ON kb_document
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ============================================================
+-- 9. MCP 工具调用审计日志表
+-- 记录每次配置类操作的执行历史，便于追溯和排障
+-- ============================================================
+CREATE TABLE IF NOT EXISTS mcp_call_log (
+    id           UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    query        TEXT         NOT NULL,              -- 用户原始需求
+    intent_type  VARCHAR(32)  NOT NULL,              -- QUERY / CONFIG
+    intent_conf  DECIMAL(5,4) DEFAULT 0.0,           -- 意图识别置信度
+    intent_src   VARCHAR(16)  DEFAULT 'UNKNOWN',     -- BERT / LLM / FALLBACK
+    plan_steps   JSONB,                              -- Planner 生成的步骤列表
+    exec_result  TEXT,                               -- 执行结果摘要
+    status       VARCHAR(32)  DEFAULT 'PENDING',     -- PENDING / SUCCESS / FAILED / PARTIAL
+    error_msg    TEXT,                               -- 异常信息
+    created_at   TIMESTAMP    DEFAULT NOW(),
+    updated_at   TIMESTAMP    DEFAULT NOW()
+);
+
+-- 按意图类型和时间查询优化
+CREATE INDEX IF NOT EXISTS idx_mcp_call_log_intent_type ON mcp_call_log(intent_type);
+CREATE INDEX IF NOT EXISTS idx_mcp_call_log_created_at  ON mcp_call_log(created_at DESC);
+
+-- 触发器：自动更新 updated_at
+CREATE OR REPLACE TRIGGER trg_mcp_call_log_updated_at
+    BEFORE UPDATE ON mcp_call_log
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ============================================================
+-- 10. SOP 向量存储表（由 Spring AI PgVectorStore 自动创建）
+-- sop_vector_store 表将在首次启动时通过 initialize-schema=true 自动建立
+-- 以下注释仅用于文档说明，无需手动执行
+-- ============================================================
+-- Spring AI 自动创建：
+-- CREATE TABLE sop_vector_store (
+--     id        UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+--     content   TEXT,
+--     metadata  JSON,
+--     embedding vector(1536)
+-- );
+-- CREATE INDEX ON sop_vector_store USING HNSW (embedding vector_cosine_ops);
