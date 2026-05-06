@@ -1,0 +1,195 @@
+[
+  {
+    "query": "帮我创建一个双十一满减活动，满100减20",
+    "sopContext": "满减活动创建流程：1.调用createActivity创建活动，type=FULL_REDUCTION；2.调用configureActivityRules配置满减规则",
+    "expected_actions": ["createActivity", "configureActivityRules"],
+    "expected_params": {
+      "createActivity": ["name"],
+      "configureActivityRules": ["threshold", "discount"]
+    },
+    "required_steps_count_min": 2,
+    "description": "满减活动创建+规则配置"
+  },
+  {
+    "query": "创建COUPON类型的优惠券活动并发放10张满50减10的券",
+    "sopContext": "COUPON活动创建流程：1.createActivity，type=COUPON；2.createCoupon创建优惠券；3.可选toggleActivityStatus上线",
+    "expected_actions": ["createActivity", "createCoupon"],
+    "expected_params": {
+      "createActivity": ["type"],
+      "createCoupon": ["threshold", "discount", "quantity"]
+    },
+    "required_steps_count_min": 2,
+    "description": "COUPON活动+优惠券创建"
+  },
+  {
+    "query": "创建一个618折扣活动并立即上线",
+    "sopContext": "活动上线流程：1.createActivity；2.configureActivityRules；3.toggleActivityStatus上线",
+    "expected_actions": ["createActivity", "toggleActivityStatus"],
+    "expected_params": {
+      "createActivity": [],
+      "toggleActivityStatus": ["status"]
+    },
+    "required_steps_count_min": 2,
+    "description": "折扣活动创建+上线"
+  },
+  {
+    "query": "把双十一满减活动的满减门槛从满100改为满150",
+    "sopContext": "活动规则修改流程：1.getActivityDetail查询活动；2.updateActivity或configureActivityRules修改规则",
+    "expected_actions": ["configureActivityRules"],
+    "expected_params": {
+      "configureActivityRules": ["threshold"]
+    },
+    "required_steps_count_min": 1,
+    "description": "修改满减规则"
+  },
+  {
+    "query": "禁用所有正在进行的满减活动",
+    "sopContext": "活动状态管理：1.listActivities查询列表；2.toggleActivityStatus批量禁用",
+    "expected_actions": ["listActivities", "toggleActivityStatus"],
+    "expected_params": {
+      "toggleActivityStatus": ["status"]
+    },
+    "required_steps_count_min": 2,
+    "description": "查询+批量禁用活动"
+  },
+  {
+    "query": "为ID为ACT_001的COUPON活动添加一张满200减30的优惠券",
+    "sopContext": "COUPON活动添加券流程：1.getActivityDetail确认活动；2.createCoupon创建券",
+    "expected_actions": ["createCoupon"],
+    "expected_params": {
+      "createCoupon": ["threshold", "discount"]
+    },
+    "required_steps_count_min": 1,
+    "description": "向现有活动添加优惠券"
+  },
+  {
+    "query": "查询当前所有活动状态并将未上线的活动全部上线",
+    "sopContext": "活动管理流程：1.listActivities；2.toggleActivityStatus上线",
+    "expected_actions": ["listActivities", "toggleActivityStatus"],
+    "expected_params": {},
+    "required_steps_count_min": 2,
+    "description": "查询并批量上线活动"
+  },
+  {
+    "query": "创建双十二大促满减活动：满200减50，活动时间12月12日全天",
+    "sopContext": "满减活动创建流程：1.createActivity；2.configureActivityRules",
+    "expected_actions": ["createActivity", "configureActivityRules"],
+    "expected_params": {
+      "createActivity": ["name"],
+      "configureActivityRules": ["threshold", "discount"]
+    },
+    "required_steps_count_min": 2,
+    "description": "含时间的满减活动创建"
+  },
+  {
+    "query": "删除已过期的优惠券活动",
+    "sopContext": "活动删除流程：1.listActivities查询；2.deleteActivity删除（如有该工具）",
+    "expected_actions": ["listActivities"],
+    "expected_params": {},
+    "required_steps_count_min": 1,
+    "description": "查询并删除过期活动"
+  },
+  {
+    "query": "新建一个满减活动后立即配置规则，然后上线推广",
+    "sopContext": "活动完整上线流程：1.createActivity；2.configureActivityRules；3.toggleActivityStatus",
+    "expected_actions": ["createActivity", "configureActivityRules", "toggleActivityStatus"],
+    "expected_params": {},
+    "required_steps_count_min": 3,
+    "description": "完整活动创建+配置+上线流程"
+  },
+  {
+    "query": "查看活动ACT_001的详细信息",
+    "sopContext": "活动查询流程：1.getActivityDetail",
+    "expected_actions": ["getActivityDetail"],
+    "expected_params": {
+      "getActivityDetail": ["activityId"]
+    },
+    "required_steps_count_min": 1,
+    "description": "单个活动详情查询"
+  },
+  {
+    "query": "帮我更新活动的结束时间到下周五",
+    "sopContext": "活动更新流程：1.updateActivity修改时间字段",
+    "expected_actions": ["updateActivity"],
+    "expected_params": {
+      "updateActivity": ["endTime"]
+    },
+    "required_steps_count_min": 1,
+    "description": "修改活动结束时间"
+  },
+  {
+    "query": "统计本月所有活动的执行情况",
+    "sopContext": "活动列表查询：1.listActivities",
+    "expected_actions": ["listActivities"],
+    "expected_params": {},
+    "required_steps_count_min": 1,
+    "description": "查询本月活动统计"
+  },
+  {
+    "query": "创建一个限时折扣活动，9折优惠，明天开始",
+    "sopContext": "折扣活动创建：1.createActivity，type=DISCOUNT；2.configureActivityRules配置折扣率",
+    "expected_actions": ["createActivity", "configureActivityRules"],
+    "expected_params": {
+      "configureActivityRules": ["discountRate"]
+    },
+    "required_steps_count_min": 2,
+    "description": "折扣活动创建"
+  },
+  {
+    "query": "暂停活动ACT_002，然后修改规则后重新上线",
+    "sopContext": "活动暂停修改上线流程：1.toggleActivityStatus暂停；2.configureActivityRules修改；3.toggleActivityStatus上线",
+    "expected_actions": ["toggleActivityStatus", "configureActivityRules"],
+    "expected_params": {},
+    "required_steps_count_min": 2,
+    "description": "暂停+修改+重新上线"
+  },
+  {
+    "query": "为新品发布创建专属优惠券活动",
+    "sopContext": "COUPON活动创建流程：1.createActivity，type=COUPON；2.createCoupon",
+    "expected_actions": ["createActivity", "createCoupon"],
+    "expected_params": {
+      "createActivity": ["name", "type"]
+    },
+    "required_steps_count_min": 2,
+    "description": "专属优惠券活动创建"
+  },
+  {
+    "query": "批量查询状态为DRAFT的活动",
+    "sopContext": "活动列表查询：1.listActivities，status过滤=DRAFT",
+    "expected_actions": ["listActivities"],
+    "expected_params": {
+      "listActivities": ["status"]
+    },
+    "required_steps_count_min": 1,
+    "description": "按状态过滤活动查询"
+  },
+  {
+    "query": "修改双十一活动名称为双11大促并更新描述",
+    "sopContext": "活动信息更新：1.updateActivity",
+    "expected_actions": ["updateActivity"],
+    "expected_params": {
+      "updateActivity": ["name"]
+    },
+    "required_steps_count_min": 1,
+    "description": "修改活动名称"
+  },
+  {
+    "query": "创建会员专享满减活动，仅限VIP用户，满300减80",
+    "sopContext": "满减活动创建：1.createActivity；2.configureActivityRules",
+    "expected_actions": ["createActivity", "configureActivityRules"],
+    "expected_params": {
+      "createActivity": ["type"],
+      "configureActivityRules": ["threshold", "discount"]
+    },
+    "required_steps_count_min": 2,
+    "description": "VIP专享满减活动"
+  },
+  {
+    "query": "把所有COUPON活动的优惠券额度翻倍",
+    "sopContext": "COUPON活动修改：1.listActivities；2.createCoupon或updateActivity批量修改",
+    "expected_actions": ["listActivities"],
+    "expected_params": {},
+    "required_steps_count_min": 1,
+    "description": "批量修改优惠券额度"
+  }
+]

@@ -1,0 +1,178 @@
+[
+  {
+    "query": "帮我创建一个双十一满减活动，满100减20",
+    "steps": [
+      {"stepId": 1, "action": "createActivity", "description": "创建满减活动", "params": {"name": "双十一满减活动", "type": "FULL_REDUCTION"}, "dependsOn": []},
+      {"stepId": 2, "action": "configureActivityRules", "description": "配置满100减20规则", "params": {"threshold": 100, "discount": 20}, "dependsOn": [1]}
+    ],
+    "expected_complete": true,
+    "description": "完整满减活动创建流程"
+  },
+  {
+    "query": "创建COUPON类型的优惠券活动并发放券",
+    "steps": [
+      {"stepId": 1, "action": "createActivity", "description": "创建COUPON活动", "params": {"type": "COUPON"}, "dependsOn": []},
+      {"stepId": 2, "action": "createCoupon", "description": "创建优惠券", "params": {"threshold": 50, "discount": 10}, "dependsOn": [1]}
+    ],
+    "expected_complete": true,
+    "description": "完整COUPON活动流程"
+  },
+  {
+    "query": "创建活动并立即上线",
+    "steps": [
+      {"stepId": 1, "action": "createActivity", "description": "创建活动", "params": {}, "dependsOn": []},
+      {"stepId": 2, "action": "configureActivityRules", "description": "配置规则", "params": {}, "dependsOn": [1]},
+      {"stepId": 3, "action": "toggleActivityStatus", "description": "上线活动", "params": {"status": "ACTIVE"}, "dependsOn": [2]}
+    ],
+    "expected_complete": true,
+    "description": "创建+配置+上线完整流程"
+  },
+  {
+    "query": "修改活动ACT_001的满减规则为满200减50",
+    "steps": [
+      {"stepId": 1, "action": "getActivityDetail", "description": "查询活动详情", "params": {"activityId": "ACT_001"}, "dependsOn": []},
+      {"stepId": 2, "action": "configureActivityRules", "description": "修改满减规则", "params": {"threshold": 200, "discount": 50}, "dependsOn": [1]}
+    ],
+    "expected_complete": true,
+    "description": "查询后修改规则"
+  },
+  {
+    "query": "禁用活动ACT_002",
+    "steps": [
+      {"stepId": 1, "action": "toggleActivityStatus", "description": "禁用活动", "params": {"activityId": "ACT_002", "status": "INACTIVE"}, "dependsOn": []}
+    ],
+    "expected_complete": true,
+    "description": "单步禁用活动"
+  },
+  {
+    "query": "查询所有活动列表",
+    "steps": [
+      {"stepId": 1, "action": "listActivities", "description": "查询所有活动", "params": {}, "dependsOn": []}
+    ],
+    "expected_complete": true,
+    "description": "查询活动列表"
+  },
+  {
+    "query": "创建COUPON类型的优惠券活动并发放券",
+    "steps": [
+      {"stepId": 1, "action": "createActivity", "description": "创建COUPON活动", "params": {"type": "COUPON"}, "dependsOn": []}
+    ],
+    "expected_complete": false,
+    "expected_missing_keywords": ["createCoupon", "优惠券"],
+    "description": "COUPON活动缺少createCoupon步骤"
+  },
+  {
+    "query": "配置满减规则满100减20",
+    "steps": [
+      {"stepId": 1, "action": "configureActivityRules", "description": "配置满减规则", "params": {"threshold": 100, "discount": 20}, "dependsOn": []}
+    ],
+    "expected_complete": false,
+    "expected_missing_keywords": ["createActivity", "活动"],
+    "description": "配置规则前缺少创建活动步骤"
+  },
+  {
+    "query": "创建活动并立即上线",
+    "steps": [
+      {"stepId": 1, "action": "createActivity", "description": "创建活动", "params": {}, "dependsOn": []}
+    ],
+    "expected_complete": false,
+    "expected_missing_keywords": ["toggleActivityStatus", "上线"],
+    "description": "缺少上线步骤"
+  },
+  {
+    "query": "创建双十一满减活动后上线",
+    "steps": [
+      {"stepId": 1, "action": "createActivity", "description": "创建满减活动", "params": {}, "dependsOn": []},
+      {"stepId": 2, "action": "toggleActivityStatus", "description": "上线活动", "params": {"status": "ACTIVE"}, "dependsOn": [1]}
+    ],
+    "expected_complete": true,
+    "description": "创建后上线（无需配置规则也可完成）"
+  },
+  {
+    "query": "批量上线所有草稿活动",
+    "steps": [
+      {"stepId": 1, "action": "listActivities", "description": "查询草稿状态活动", "params": {"status": "DRAFT"}, "dependsOn": []},
+      {"stepId": 2, "action": "toggleActivityStatus", "description": "批量上线", "params": {"status": "ACTIVE"}, "dependsOn": [1]}
+    ],
+    "expected_complete": true,
+    "description": "查询+批量上线"
+  },
+  {
+    "query": "把满减活动暂停修改规则再上线",
+    "steps": [
+      {"stepId": 1, "action": "toggleActivityStatus", "description": "暂停活动", "params": {"status": "PAUSED"}, "dependsOn": []}
+    ],
+    "expected_complete": false,
+    "expected_missing_keywords": ["configureActivityRules", "规则"],
+    "description": "缺少修改规则和重新上线步骤"
+  },
+  {
+    "query": "查询活动ACT_001详情并修改名称",
+    "steps": [
+      {"stepId": 1, "action": "getActivityDetail", "description": "查询活动详情", "params": {"activityId": "ACT_001"}, "dependsOn": []},
+      {"stepId": 2, "action": "updateActivity", "description": "修改活动名称", "params": {"name": "新名称"}, "dependsOn": [1]}
+    ],
+    "expected_complete": true,
+    "description": "查询后修改"
+  },
+  {
+    "query": "创建新品发布专属优惠券活动",
+    "steps": [
+      {"stepId": 1, "action": "createActivity", "description": "创建专属活动", "params": {"type": "COUPON", "name": "新品发布专属"}, "dependsOn": []}
+    ],
+    "expected_complete": false,
+    "expected_missing_keywords": ["createCoupon"],
+    "description": "COUPON活动缺少createCoupon"
+  },
+  {
+    "query": "创建折扣活动并配置9折优惠",
+    "steps": [
+      {"stepId": 1, "action": "createActivity", "description": "创建折扣活动", "params": {"type": "DISCOUNT"}, "dependsOn": []},
+      {"stepId": 2, "action": "configureActivityRules", "description": "配置9折优惠", "params": {"discountRate": 0.9}, "dependsOn": [1]}
+    ],
+    "expected_complete": true,
+    "description": "折扣活动完整流程"
+  },
+  {
+    "query": "删除已过期的活动",
+    "steps": [
+      {"stepId": 1, "action": "listActivities", "description": "查询过期活动", "params": {"status": "EXPIRED"}, "dependsOn": []}
+    ],
+    "expected_complete": true,
+    "description": "查询过期活动（删除不在工具列表内，仅查询即视为完整）"
+  },
+  {
+    "query": "修改活动结束时间",
+    "steps": [],
+    "expected_complete": false,
+    "expected_missing_keywords": ["updateActivity"],
+    "description": "空步骤列表"
+  },
+  {
+    "query": "创建COUPON活动并配置优惠券且立即上线",
+    "steps": [
+      {"stepId": 1, "action": "createActivity", "description": "创建COUPON活动", "params": {"type": "COUPON"}, "dependsOn": []},
+      {"stepId": 2, "action": "createCoupon", "description": "创建优惠券", "params": {}, "dependsOn": [1]},
+      {"stepId": 3, "action": "toggleActivityStatus", "description": "上线活动", "params": {"status": "ACTIVE"}, "dependsOn": [2]}
+    ],
+    "expected_complete": true,
+    "description": "COUPON活动完整三步流程"
+  },
+  {
+    "query": "暂停双十一活动",
+    "steps": [
+      {"stepId": 1, "action": "getActivityDetail", "description": "查询活动详情", "params": {}, "dependsOn": []},
+      {"stepId": 2, "action": "toggleActivityStatus", "description": "暂停活动", "params": {"status": "PAUSED"}, "dependsOn": [1]}
+    ],
+    "expected_complete": true,
+    "description": "查询后暂停"
+  },
+  {
+    "query": "将满减活动规则从满100减20改为满150减30",
+    "steps": [
+      {"stepId": 1, "action": "configureActivityRules", "description": "修改满减规则", "params": {"threshold": 150, "discount": 30}, "dependsOn": []}
+    ],
+    "expected_complete": true,
+    "description": "直接修改规则（已有活动时无需创建）"
+  }
+]

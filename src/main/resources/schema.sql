@@ -11,17 +11,25 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- 2. 文档元数据表（独立管理，与 Spring AI vector_store 分离）
 -- ============================================================
 CREATE TABLE IF NOT EXISTS kb_document (
-    id          UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    filename    VARCHAR(512) NOT NULL,
-    file_hash   VARCHAR(64)  NOT NULL UNIQUE,   -- SHA-256，用于去重
-    file_size   BIGINT       NOT NULL,
-    file_type   VARCHAR(32)  NOT NULL,          -- pdf / docx / txt / md
-    chunk_count INTEGER      DEFAULT 0,
-    status      VARCHAR(32)  DEFAULT 'PENDING', -- PENDING / PROCESSING / DONE / ERROR
-    error_msg   TEXT,
-    created_at  TIMESTAMP    DEFAULT NOW(),
-    updated_at  TIMESTAMP    DEFAULT NOW()
+    id            UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    filename      VARCHAR(512) NOT NULL,
+    file_hash     VARCHAR(64)  NOT NULL UNIQUE,   -- SHA-256，用于去重
+    file_size     BIGINT       NOT NULL,
+    file_type     VARCHAR(32)  NOT NULL,          -- pdf / docx / txt / md / url / rpc
+    chunk_count   INTEGER      DEFAULT 0,
+    status        VARCHAR(32)  DEFAULT 'PENDING', -- PENDING / PROCESSING / DONE / ERROR
+    error_msg     TEXT,
+    source_type   VARCHAR(16)  DEFAULT 'FILE',    -- 录入来源：FILE / URL / RPC
+    source_url    TEXT,                           -- URL 录入时记录原始地址
+    source_system VARCHAR(128),                   -- RPC 录入时记录来源系统标识
+    created_at    TIMESTAMP    DEFAULT NOW(),
+    updated_at    TIMESTAMP    DEFAULT NOW()
 );
+
+-- 为已有表添加新列（幂等执行）
+ALTER TABLE kb_document ADD COLUMN IF NOT EXISTS source_type   VARCHAR(16)  DEFAULT 'FILE';
+ALTER TABLE kb_document ADD COLUMN IF NOT EXISTS source_url    TEXT;
+ALTER TABLE kb_document ADD COLUMN IF NOT EXISTS source_system VARCHAR(128);
 
 -- ============================================================
 -- 3. Spring AI 会自动创建 vector_store 表（initialize-schema: true）

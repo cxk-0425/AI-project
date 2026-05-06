@@ -23,6 +23,20 @@ spring:
     init:
       mode: never   # schema.sql 由 docker-compose 初始化
 
+  # Redis 配置（Token 缓存 + 分布式锁）
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 1000ms
+
   # Spring AI 配置
   ai:
     # OpenAI 配置（替换为实际 API Key）
@@ -54,6 +68,14 @@ kb:
     allowed-types: pdf,docx,doc,txt,md
     chunk-size: 800          # token per chunk
     chunk-overlap: 200       # overlap token
+  
+  # URL 录入配置（UrlFetcher）
+  ingest:
+    url:
+      user-agent: "Mozilla/5.0 (compatible; KnowledgeBase-Bot/1.0; +https://github.com/kb)"
+      max-content-bytes: 5242880   # 5 MB，超出截断
+      # 单次抓取超时由请求参数 timeoutSeconds 控制（默认 15s）
+  
   rag:
     top-k: 5                 # 检索 Top-K 片段
     similarity-threshold: 0.65  # 最低相似度阈值
@@ -114,7 +136,24 @@ intent:
 marketing:
   api:
     base-url: ${MARKETING_API_BASE_URL:http://localhost:9090}
-    token: ${MARKETING_API_TOKEN:}
+    # 注：token 已移除，改为由 TokenRefreshService 从中台动态获取
+  token:
+    # 中台 OAuth 服务地址（提供 /oauth/token 接口）
+    middle-platform-url: ${MIDDLE_PLATFORM_URL:http://localhost:8888}
+    app-id: ${MIDDLE_PLATFORM_APP_ID:your-app-id}
+    app-secret: ${MIDDLE_PLATFORM_APP_SECRET:your-app-secret}
+    # Redis 缓存 Key
+    redis-key: "marketing:token"
+    # 分布式锁 Key
+    lock-key: "marketing:token:lock"
+    # 等锁超时（秒）：等待其他实例释放锁的最长时间
+    lock-wait-seconds: 5
+    # 锁自动释放时间（秒）：防止宕机导致锁泄漏
+    lock-lease-seconds: 10
+    # 提前刷新窗口（秒）：Token 剩余有效期 < 此值时主动刷新
+    refresh-ahead-seconds: 300
+    # 获锁失败后最大自旋重试次数
+    max-retry: 3
 
 # ================================================================
 # Agent 链配置

@@ -3,6 +3,7 @@ package com.kb.service;
 import com.kb.model.KbDocument;
 import com.kb.parser.DocumentParser;
 import com.kb.parser.ParserFactory;
+import com.kb.parser.UrlFetcher;
 import com.kb.repository.DocumentMetaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,12 +27,20 @@ import java.util.UUID;
  * 文档处理 Service
  * <p>
  * 负责：文件接收 → 格式解析 → 文本分块 → Embedding 向量化 → 存入 PGVector
+ * <p>
+ * 支持三种录入方式：
+ * <ul>
+ *   <li>{@link #uploadAndProcess} — 传统文件上传（multipart）</li>
+ *   <li>{@link #ingestFromUrl} — URL 抓取（HTTP GET + HTML 正文提取）</li>
+ *   <li>{@link #ingestFromRpc} — RPC 接口录入（外部系统直接推送文本内容）</li>
+ * </ul>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class DocumentService {
 
+    private final UrlFetcher urlFetcher;
     private final ParserFactory parserFactory;
     private final VectorStore vectorStore;
     private final DocumentMetaRepository documentMetaRepository;
@@ -42,6 +51,152 @@ public class DocumentService {
 
     @Value("${kb.document.chunk-overlap:200}")
     private int chunkOverlap;
+
+    // ─── 公开方法：三种录入方式 ────────────────────────────────────────────────
+
+    /**
+     * 【URL 录入】通过 HTTP 抓取目标 URL 的内容并入库
+     * <p>
+     * 流程：HTTP GET 抓取 → Jsoup HTML 正文提取 → SHA-256 去重 → 切块 → 向量化入库
+     *
+     * @param url            目标 URL（支持 http/https）
+     * @param timeoutSeconds HTTP 请求超时（秒）
+     * @return 文档元数据记录
+     */
+    @Transactional
+    public KbDocument ingestFromUrl(String url, int timeoutSeconds) throws Exception {
+        log.info("[DocumentService] URL 录入开始: {}", url);
+
+        // 1. 抓取 URL 内容
+        UrlFetcher.FetchResult fetchResult = urlFetcher.fetch(url, timeoutSeconds);
+        String rawText = fetchResult.content();
+        String title = fetchResult.title();
+
+        if (rawText == null || rawText.isBlank()) {
+            throw new IllegalStateException("URL 内容为空或无法提取正文: " + url);
+        }
+
+        // 2. SHA-256 去重（对内容哈希，允许同一 URL 内容更新后重新录入）
+        byte[] contentBytes = rawText.getBytes(StandardCharsets.UTF_8);
+        String fileHash = sha256Hex(contentBytes);
+        if (documentMetaRepository.findByFileHash(fileHash).isPresent()) {
+            log.warn("[DocumentService] URL 内容已存在（内容未变化），跳过重复入库: {}", url);
+            return documentMetaRepository.findByFileHash(fileHash).get();
+        }
+
+        // 3. 保存元数据（PROCESSING 状态）
+        KbDocument doc = KbDocument.builder()
+                .filename(title.length() > 512 ? title.substring(0, 512) : title)
+                .fileHash(fileHash)
+                .fileSize((long) contentBytes.length)
+                .fileType("url")
+                .status(KbDocument.DocumentStatus.PROCESSING)
+                .sourceType(KbDocument.SourceType.URL)
+                .sourceUrl(url.length() > 2048 ? url.substring(0, 2048) : url)
+                .build();
+        doc = documentMetaRepository.save(doc);
+
+        try {
+            // 4. 切块
+            List<Document> chunks = splitIntoChunks(rawText, title, doc.getId());
+            log.info("[DocumentService] URL 录入切块完成: {} 个 chunk（URL: {}）", chunks.size(), url);
+
+            // 5. 向量化入库
+            vectorStore.add(chunks);
+            log.info("[DocumentService] URL 向量入库完成: {}", url);
+
+            // 6. 更新元数据为 DONE
+            doc.setChunkCount(chunks.size());
+            doc.setStatus(KbDocument.DocumentStatus.DONE);
+            doc = documentMetaRepository.save(doc);
+
+        } catch (Exception e) {
+            log.error("[DocumentService] URL 录入失败: {}", url, e);
+            doc.setStatus(KbDocument.DocumentStatus.ERROR);
+            doc.setErrorMsg(e.getMessage());
+            documentMetaRepository.save(doc);
+            throw e;
+        }
+
+        // 7. 清空向量缓存
+        ragService.invalidateCache();
+
+        log.info("[DocumentService] URL 录入完成: title='{}', chunks={}", title, doc.getChunkCount());
+        return doc;
+    }
+
+    /**
+     * 【RPC 录入】接收外部系统通过接口推送的文本内容并入库
+     * <p>
+     * 流程：接收文本 → SHA-256 去重 → 切块 → 向量化入库
+     * <p>
+     * 适用场景：CRM/ERP/OA 等内部系统实时推送文档、数据管道批量同步、自动化脚本调用。
+     *
+     * @param title        文档标题（作为 filename 存储）
+     * @param content      文档正文内容（UTF-8 文本）
+     * @param sourceSystem 来源系统标识（可选，如 "crm-system"）
+     * @return 文档元数据记录
+     */
+    @Transactional
+    public KbDocument ingestFromRpc(String title, String content, String sourceSystem) throws Exception {
+        log.info("[DocumentService] RPC 录入开始: title='{}', system='{}'", title, sourceSystem);
+
+        if (content == null || content.isBlank()) {
+            throw new IllegalArgumentException("RPC 录入：content 不能为空");
+        }
+        if (title == null || title.isBlank()) {
+            throw new IllegalArgumentException("RPC 录入：title 不能为空");
+        }
+
+        // 1. SHA-256 去重（基于内容哈希）
+        byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+        String fileHash = sha256Hex(contentBytes);
+        if (documentMetaRepository.findByFileHash(fileHash).isPresent()) {
+            log.warn("[DocumentService] RPC 内容已存在，跳过重复入库: title='{}'", title);
+            return documentMetaRepository.findByFileHash(fileHash).get();
+        }
+
+        // 2. 保存元数据（PROCESSING 状态）
+        String safeTitle = title.length() > 512 ? title.substring(0, 512) : title;
+        KbDocument doc = KbDocument.builder()
+                .filename(safeTitle)
+                .fileHash(fileHash)
+                .fileSize((long) contentBytes.length)
+                .fileType("rpc")
+                .status(KbDocument.DocumentStatus.PROCESSING)
+                .sourceType(KbDocument.SourceType.RPC)
+                .sourceSystem(sourceSystem)
+                .build();
+        doc = documentMetaRepository.save(doc);
+
+        try {
+            // 3. 切块
+            List<Document> chunks = splitIntoChunks(content, safeTitle, doc.getId());
+            log.info("[DocumentService] RPC 录入切块完成: {} 个 chunk（title='{}'）", chunks.size(), title);
+
+            // 4. 向量化入库
+            vectorStore.add(chunks);
+            log.info("[DocumentService] RPC 向量入库完成: title='{}'", title);
+
+            // 5. 更新元数据为 DONE
+            doc.setChunkCount(chunks.size());
+            doc.setStatus(KbDocument.DocumentStatus.DONE);
+            doc = documentMetaRepository.save(doc);
+
+        } catch (Exception e) {
+            log.error("[DocumentService] RPC 录入失败: title='{}'", title, e);
+            doc.setStatus(KbDocument.DocumentStatus.ERROR);
+            doc.setErrorMsg(e.getMessage());
+            documentMetaRepository.save(doc);
+            throw e;
+        }
+
+        // 6. 清空向量缓存
+        ragService.invalidateCache();
+
+        log.info("[DocumentService] RPC 录入完成: title='{}', chunks={}", title, doc.getChunkCount());
+        return doc;
+    }
 
     /**
      * 上传并处理文档：解析 → 分块 → 向量化入库
@@ -114,6 +269,103 @@ public class DocumentService {
         // 8. 清空向量缓存（新文档入库后旧缓存失效）
         ragService.invalidateCache();
 
+        return doc;
+    }
+
+    /**
+     * 【URL 录入 → SOP 库】抓取 URL 内容并存入 sopVectorStore
+     */
+    @Transactional
+    public KbDocument ingestFromUrlToSop(String url, int timeoutSeconds, SopRagService sopRagService) throws Exception {
+        log.info("[DocumentService] URL→SOP 录入开始: {}", url);
+
+        UrlFetcher.FetchResult fetchResult = urlFetcher.fetch(url, timeoutSeconds);
+        String rawText = fetchResult.content();
+        String title = fetchResult.title();
+
+        if (rawText == null || rawText.isBlank()) {
+            throw new IllegalStateException("URL 内容为空或无法提取正文: " + url);
+        }
+
+        byte[] contentBytes = rawText.getBytes(StandardCharsets.UTF_8);
+        String fileHash = sha256Hex(contentBytes);
+        if (documentMetaRepository.findByFileHash(fileHash).isPresent()) {
+            log.warn("[DocumentService] URL→SOP 内容已存在，跳过: {}", url);
+            return documentMetaRepository.findByFileHash(fileHash).get();
+        }
+
+        KbDocument doc = KbDocument.builder()
+                .filename(title.length() > 512 ? title.substring(0, 512) : title)
+                .fileHash(fileHash)
+                .fileSize((long) contentBytes.length)
+                .fileType("sop-url")
+                .status(KbDocument.DocumentStatus.PROCESSING)
+                .sourceType(KbDocument.SourceType.URL)
+                .sourceUrl(url.length() > 2048 ? url.substring(0, 2048) : url)
+                .build();
+        doc = documentMetaRepository.save(doc);
+
+        try {
+            List<Document> chunks = splitIntoChunks(rawText, title, doc.getId());
+            sopRagService.addDocuments(chunks);
+            doc.setChunkCount(chunks.size());
+            doc.setStatus(KbDocument.DocumentStatus.DONE);
+            doc = documentMetaRepository.save(doc);
+        } catch (Exception e) {
+            log.error("[DocumentService] URL→SOP 录入失败: {}", url, e);
+            doc.setStatus(KbDocument.DocumentStatus.ERROR);
+            doc.setErrorMsg(e.getMessage());
+            documentMetaRepository.save(doc);
+            throw e;
+        }
+        log.info("[DocumentService] URL→SOP 录入完成: title='{}', chunks={}", title, doc.getChunkCount());
+        return doc;
+    }
+
+    /**
+     * 【RPC 录入 → SOP 库】接收外部推送文本并存入 sopVectorStore
+     */
+    @Transactional
+    public KbDocument ingestFromRpcToSop(String title, String content, String sourceSystem,
+                                          SopRagService sopRagService) throws Exception {
+        log.info("[DocumentService] RPC→SOP 录入开始: title='{}'", title);
+
+        if (content == null || content.isBlank()) throw new IllegalArgumentException("content 不能为空");
+        if (title == null || title.isBlank()) throw new IllegalArgumentException("title 不能为空");
+
+        byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+        String fileHash = sha256Hex(contentBytes);
+        if (documentMetaRepository.findByFileHash(fileHash).isPresent()) {
+            log.warn("[DocumentService] RPC→SOP 内容已存在，跳过: title='{}'", title);
+            return documentMetaRepository.findByFileHash(fileHash).get();
+        }
+
+        String safeTitle = title.length() > 512 ? title.substring(0, 512) : title;
+        KbDocument doc = KbDocument.builder()
+                .filename(safeTitle)
+                .fileHash(fileHash)
+                .fileSize((long) contentBytes.length)
+                .fileType("sop-rpc")
+                .status(KbDocument.DocumentStatus.PROCESSING)
+                .sourceType(KbDocument.SourceType.RPC)
+                .sourceSystem(sourceSystem)
+                .build();
+        doc = documentMetaRepository.save(doc);
+
+        try {
+            List<Document> chunks = splitIntoChunks(content, safeTitle, doc.getId());
+            sopRagService.addDocuments(chunks);
+            doc.setChunkCount(chunks.size());
+            doc.setStatus(KbDocument.DocumentStatus.DONE);
+            doc = documentMetaRepository.save(doc);
+        } catch (Exception e) {
+            log.error("[DocumentService] RPC→SOP 录入失败: title='{}'", title, e);
+            doc.setStatus(KbDocument.DocumentStatus.ERROR);
+            doc.setErrorMsg(e.getMessage());
+            documentMetaRepository.save(doc);
+            throw e;
+        }
+        log.info("[DocumentService] RPC→SOP 录入完成: title='{}', chunks={}", title, doc.getChunkCount());
         return doc;
     }
 

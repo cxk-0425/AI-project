@@ -19,5 +19,21 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7.2-alpine
+    container_name: kb-redis
+    ports:
+      - "6379:6379"
+    # 生产环境请通过 REDIS_PASSWORD 环境变量或 requirepass 配置密码
+    # command: redis-server --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   pgvector_data:
+  redis_data:

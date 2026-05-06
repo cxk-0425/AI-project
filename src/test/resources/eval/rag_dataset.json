@@ -1,0 +1,32 @@
+[
+  {
+    "query": "满减活动如何配置规则？",
+    "relevant_doc_ids": [],
+    "relevance_grades": {},
+    "note": "需要先向知识库录入真实文档，再用真实 doc ID 替换此占位符"
+  },
+  {
+    "query": "优惠券活动创建流程是什么？",
+    "relevant_doc_ids": [],
+    "relevance_grades": {},
+    "note": "占位符，使用前请补充真实文档 ID"
+  },
+  {
+    "query": "活动审核需要哪些条件？",
+    "relevant_doc_ids": [],
+    "relevance_grades": {},
+    "note": "占位符，使用前请补充真实文档 ID"
+  },
+  {
+    "query": "COUPON 类活动和满减活动的区别",
+    "relevant_doc_ids": [],
+    "relevance_grades": {},
+    "note": "占位符，使用前请补充真实文档 ID"
+  },
+  {
+    "query": "如何修改已发布活动的时间",
+    "relevant_doc_ids": [],
+    "relevance_grades": {},
+    "note": "占位符，使用前请补充真实文档 ID"
+  }
+]

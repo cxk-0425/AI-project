@@ -1,8 +1,11 @@
 package com.kb.controller;
 
 import com.kb.model.KbDocument;
+import com.kb.model.RpcIngestRequest;
+import com.kb.model.UrlIngestRequest;
 import com.kb.service.DocumentService;
 import com.kb.service.SopRagService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -16,12 +19,14 @@ import java.util.UUID;
 /**
  * 文档管理 Controller
  * <p>
- * 提供文档上传、列表查询、删除等 REST 接口。
+ * 提供文档上传、URL 抓取、RPC 录入、列表查询、删除等 REST 接口。
  * <p>
- * 两类文档库：
+ * 三种录入方式：
  * <ul>
- *   <li>POST /api/documents/upload      - 上传到电商营销内部文档库（docVectorStore，用于 QUERY 路径）</li>
- *   <li>POST /api/documents/upload/sop  - 上传到营销 QA + SOP 文档库（sopVectorStore，用于 CONFIG 路径）</li>
+ *   <li>POST /api/documents/upload         - 文件上传（multipart）到营销文档库（QUERY 路径）</li>
+ *   <li>POST /api/documents/upload/sop     - 文件上传（multipart）到 SOP 文档库（CONFIG 路径）</li>
+ *   <li>POST /api/documents/ingest/url     - URL 抓取录入（HTTP GET + HTML 正文提取）</li>
+ *   <li>POST /api/documents/ingest/rpc     - RPC 接口录入（外部系统直接推送文本）</li>
  * </ul>
  */
 @Slf4j
@@ -33,6 +38,84 @@ public class DocumentController {
 
     private final DocumentService documentService;
     private final SopRagService sopRagService;
+
+    // ─── 新录入方式 ───────────────────────────────────────────────────────────
+
+    /**
+     * 【URL 录入】通过 HTTP 抓取目标 URL 的内容入库
+     * POST /api/documents/ingest/url
+     *
+     * <h3>请求示例（curl）</h3>
+     * <pre>{@code
+     * curl -X POST http://localhost:8080/api/documents/ingest/url \
+     *   -H "Content-Type: application/json" \
+     *   -d '{"url":"https://example.com/article","storeType":"DOC","timeoutSeconds":15}'
+     * }</pre>
+     */
+    @PostMapping("/ingest/url")
+    public ResponseEntity<?> ingestFromUrl(@Valid @RequestBody UrlIngestRequest req) {
+        try {
+            int timeout = req.getTimeoutSeconds() != null ? req.getTimeoutSeconds() : 15;
+            KbDocument doc;
+            if ("SOP".equalsIgnoreCase(req.getStoreType())) {
+                // URL 录入到 SOP 知识库（通过 sopRagService 写入 sop_vector_store）
+                doc = documentService.ingestFromUrlToSop(req.getUrl(), timeout, sopRagService);
+            } else {
+                doc = documentService.ingestFromUrl(req.getUrl(), timeout);
+            }
+            return ResponseEntity.ok(buildDocumentResponse(doc, "URL 录入成功"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()
+            ));
+        } catch (Exception e) {
+            log.error("[DocumentController] URL 录入失败: {}", req.getUrl(), e);
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "success", false,
+                    "message", "URL 录入失败: " + e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * 【RPC 录入】外部系统通过接口直接推送文本内容入库
+     * POST /api/documents/ingest/rpc
+     *
+     * <h3>请求示例（curl）</h3>
+     * <pre>{@code
+     * curl -X POST http://localhost:8080/api/documents/ingest/rpc \
+     *   -H "Content-Type: application/json" \
+     *   -d '{"title":"2024年Q4营销策略","content":"本季度重点聚焦...","sourceSystem":"crm"}'
+     * }</pre>
+     */
+    @PostMapping("/ingest/rpc")
+    public ResponseEntity<?> ingestFromRpc(@Valid @RequestBody RpcIngestRequest req) {
+        try {
+            KbDocument doc;
+            if ("SOP".equalsIgnoreCase(req.getStoreType())) {
+                doc = documentService.ingestFromRpcToSop(
+                        req.getTitle(), req.getContent(), req.getSourceSystem(), sopRagService);
+            } else {
+                doc = documentService.ingestFromRpc(
+                        req.getTitle(), req.getContent(), req.getSourceSystem());
+            }
+            return ResponseEntity.ok(buildDocumentResponse(doc, "RPC 录入成功"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()
+            ));
+        } catch (Exception e) {
+            log.error("[DocumentController] RPC 录入失败: title={}", req.getTitle(), e);
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "success", false,
+                    "message", "RPC 录入失败: " + e.getMessage()
+            ));
+        }
+    }
+
+    // ─── 传统上传接口 ─────────────────────────────────────────────────────────
 
     /**
      * 上传并处理文档（入库到电商营销内部文档库，供 QUERY 路径使用）
@@ -149,5 +232,28 @@ public class DocumentController {
                     "message", "删除失败: " + e.getMessage()
             ));
         }
+    }
+
+    // ─── 私有辅助方法 ─────────────────────────────────────────────────────────
+
+    /**
+     * 构建统一的文档录入成功响应
+     */
+    private Map<String, Object> buildDocumentResponse(KbDocument doc, String message) {
+        return Map.of(
+                "success",  true,
+                "message",  message,
+                "document", Map.of(
+                        "id",           doc.getId(),
+                        "filename",     doc.getFilename(),
+                        "fileType",     doc.getFileType(),
+                        "fileSize",     doc.getFileSize(),
+                        "chunkCount",   doc.getChunkCount(),
+                        "status",       doc.getStatus(),
+                        "sourceType",   doc.getSourceType(),
+                        "sourceUrl",    doc.getSourceUrl() != null ? doc.getSourceUrl() : "",
+                        "sourceSystem", doc.getSourceSystem() != null ? doc.getSourceSystem() : ""
+                )
+        );
     }
 }
